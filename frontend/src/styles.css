@@ -287,6 +287,25 @@ button:disabled {
   background: var(--accent);
 }
 
+.secondaryAction {
+  width: 100%;
+  margin-top: 10px;
+  background: #fff7ee;
+  border-color: #e8ccb0;
+  color: #8a4b1d;
+}
+
+.secondaryAction:hover {
+  background: #ffefdd;
+  border-color: #ddb38d;
+}
+
+.pendingServeNotice {
+  margin-top: 6px;
+  color: #8a4b1d;
+  font-weight: 600;
+}
+
 .danger {
   width: 100%;
   margin-top: 10px;

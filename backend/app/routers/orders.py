@@ -2,7 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database import get_db
-from app.schemas import DiscountPayload, OrderCreate, OrderItemCreate, OrderItemUpdate, StatusUpdate, VoidItemPayload
+from app.schemas import (
+    DiscountPayload,
+    OrderCreate,
+    OrderItemCreate,
+    OrderItemUpdate,
+    ServePendingPayload,
+    StatusUpdate,
+    VoidItemPayload,
+)
 from app.services.order_service import (
     add_item,
     apply_discount,
@@ -10,6 +18,7 @@ from app.services.order_service import (
     delete_order,
     get_order_or_none,
     normalize_order_response,
+    serve_pending_items,
     update_item,
     update_order_status,
     void_item,
@@ -72,6 +81,19 @@ async def void_item_route(
 async def update_status_route(order_id: str, payload: StatusUpdate, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
     try:
         updated = await update_order_status(db, order_id, payload.status, payload.actor_id, payload.reason)
+        return normalize_order_response(updated)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message.lower() else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+
+@router.post("/{order_id}/serve-pending")
+async def serve_pending_route(
+    order_id: str, payload: ServePendingPayload = ServePendingPayload(), db: AsyncIOMotorDatabase = Depends(get_db)
+) -> dict:
+    try:
+        updated = await serve_pending_items(db, order_id, payload.actor_id)
         return normalize_order_response(updated)
     except ValueError as exc:
         message = str(exc)

@@ -47,6 +47,10 @@ class VoidItemPayload(BaseModel):
     actor_id: str = "cashier-demo"
 
 
+class ServePendingPayload(BaseModel):
+    actor_id: str = "cashier-demo"
+
+
 class SyncMutation(BaseModel):
     mutation_id: str
     action: str

@@ -19,6 +19,61 @@ def _totals(items: list[dict[str, Any]], discount: float = 0) -> dict[str, float
     return {"subtotal": subtotal, "discount": discount, "tax": tax, "total": total}
 
 
+def _is_served_or_later(status: str) -> bool:
+    normalized = "Open" if status == "SentToKitchen" else status
+    return normalized in {"Served", "Billed", "Paid"}
+
+
+def _safe_qty(value: Any) -> int:
+    try:
+        qty = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return max(qty, 1)
+
+
+def _normalize_item_service_state(item: dict[str, Any], status: str) -> dict[str, Any]:
+    next_item = {**item}
+    qty = _safe_qty(next_item.get("qty", 1))
+    next_item["qty"] = qty
+    is_voided = bool(next_item.get("voided"))
+    served_by_status = _is_served_or_later(status) and not is_voided
+    has_served_qty = "served_qty" in next_item
+    if has_served_qty:
+        try:
+            served_qty = int(next_item.get("served_qty") or 0)
+        except (TypeError, ValueError):
+            served_qty = 0
+    elif "served" in next_item:
+        served_qty = qty if bool(next_item.get("served")) and not is_voided else 0
+    else:
+        served_qty = qty if served_by_status else 0
+    served_qty = max(0, min(served_qty, qty))
+    next_item["served_qty"] = served_qty
+    next_item["served"] = bool(not is_voided and served_qty >= qty)
+    next_item["served_at"] = next_item.get("served_at") or None
+    return next_item
+
+
+def _normalize_items_service_state(items: list[dict[str, Any]], status: str) -> list[dict[str, Any]]:
+    return [_normalize_item_service_state(item, status) for item in items]
+
+
+def _pending_service_qty(order: dict[str, Any]) -> int:
+    pending = 0
+    for item in order.get("items", []):
+        if item.get("voided"):
+            continue
+        qty = _safe_qty(item.get("qty", 1))
+        try:
+            raw_served_qty = int(item.get("served_qty") or 0)
+        except (TypeError, ValueError):
+            raw_served_qty = 0
+        served_qty = max(0, min(raw_served_qty, qty))
+        pending += max(qty - served_qty, 0)
+    return pending
+
+
 async def ensure_tables_seeded(db: AsyncIOMotorDatabase) -> None:
     count = await db.tables.count_documents({})
     if count:
@@ -62,6 +117,7 @@ async def get_order_or_none(db: AsyncIOMotorDatabase, order_id: str) -> dict[str
     doc = await db.orders.find_one({"_id": ObjectId(order_id)})
     if not doc:
         return None
+    doc["items"] = _normalize_items_service_state(doc.get("items", []), doc.get("status", "Open"))
     doc["id"] = str(doc["_id"])
     return doc
 
@@ -78,6 +134,9 @@ async def add_item(db: AsyncIOMotorDatabase, order_id: str, payload: OrderItemCr
     item["void_reason"] = ""
     item["voided_at"] = None
     item["voided_by"] = ""
+    item["served"] = False
+    item["served_qty"] = 0
+    item["served_at"] = None
     order["items"].append(item)
     order["totals"] = _totals(order["items"], order.get("discount", 0))
     order["updated_at"] = datetime.utcnow()
@@ -104,8 +163,12 @@ async def update_item(
         raise ValueError("Cannot edit voided item")
 
     before = order["items"][item_index].copy()
-    order["items"][item_index]["qty"] = payload.qty
-    order["items"][item_index]["modifiers"] = payload.modifiers.model_dump()
+    prev_item = _normalize_item_service_state(order["items"][item_index], order.get("status", "Open"))
+    next_item = {**prev_item}
+    next_item["qty"] = payload.qty
+    next_item["modifiers"] = payload.modifiers.model_dump()
+    next_item = _normalize_item_service_state(next_item, order.get("status", "Open"))
+    order["items"][item_index] = next_item
     order["updated_at"] = datetime.utcnow()
     order["totals"] = _totals(order["items"], order.get("discount", 0))
 
@@ -179,18 +242,20 @@ async def get_active_order_for_table(db: AsyncIOMotorDatabase, table_id: str) ->
     )
     if not doc:
         return None
+    doc["items"] = _normalize_items_service_state(doc.get("items", []), doc.get("status", "Open"))
     doc["id"] = str(doc["_id"])
     return doc
 
 
 def normalize_order_response(order: dict[str, Any]) -> dict[str, Any]:
+    normalized_items = _normalize_items_service_state(order.get("items", []), order.get("status", "Open"))
     return {
         "id": order.get("id") or str(order["_id"]),
         "table_id": order["table_id"],
         "status": order["status"],
-        "items": order.get("items", []),
+        "items": normalized_items,
         "discount": order.get("discount", 0),
-        "totals": order.get("totals", _totals(order.get("items", []), order.get("discount", 0))),
+        "totals": order.get("totals", _totals(normalized_items, order.get("discount", 0))),
         "updated_at": order.get("updated_at"),
     }
 
@@ -205,11 +270,23 @@ async def update_order_status(
         raise ValueError("Cancel reason is required")
     if not can_transition(order["status"], status):
         raise ValueError("Invalid status transition")
+    if status == "Billed" and _pending_service_qty(order) > 0:
+        raise ValueError("Cannot move to billed while some items are pending service")
 
     now = datetime.utcnow()
+    if status == "Served":
+        items = []
+        for item in order.get("items", []):
+            next_item = _normalize_item_service_state(item, order.get("status", "Open"))
+            if not next_item.get("voided") and next_item.get("served_qty", 0) < next_item.get("qty", 1):
+                next_item["served_qty"] = next_item.get("qty", 1)
+                next_item["served"] = True
+                next_item["served_at"] = now
+            items.append(next_item)
+        order["items"] = items
     await db.orders.update_one(
         {"_id": ObjectId(order_id)},
-        {"$set": {"status": status, "updated_at": now}},
+        {"$set": {"status": status, "items": order.get("items", []), "updated_at": now}},
     )
     if status in {"Paid", "Cancelled"}:
         await db.tables.update_one({"table_id": order["table_id"]}, {"$set": {"active_order_id": None, "updated_at": now}})
@@ -221,6 +298,43 @@ async def update_order_status(
         {"order_id": order_id, "from": order["status"], "to": status, "reason": reason},
     )
     order["status"] = status
+    order["updated_at"] = now
+    return order
+
+
+async def serve_pending_items(db: AsyncIOMotorDatabase, order_id: str, actor_id: str) -> dict[str, Any]:
+    order = await get_order_or_none(db, order_id)
+    if not order:
+        raise ValueError("Order not found")
+    if order["status"] != "Served":
+        raise ValueError("Serve pending items is only allowed when order status is Served")
+
+    now = datetime.utcnow()
+    pending_count = 0
+    items: list[dict[str, Any]] = []
+    for item in order.get("items", []):
+        next_item = _normalize_item_service_state(item, order.get("status", "Open"))
+        if not next_item.get("voided") and next_item.get("served_qty", 0) < next_item.get("qty", 1):
+            next_item["served_qty"] = next_item.get("qty", 1)
+            next_item["served"] = True
+            next_item["served_at"] = now
+            pending_count += 1
+        items.append(next_item)
+
+    if pending_count == 0:
+        return order
+
+    await db.orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": {"items": items, "updated_at": now}},
+    )
+    await add_audit(
+        db,
+        "PENDING_ITEMS_SERVED",
+        actor_id,
+        {"order_id": order_id, "served_items": pending_count},
+    )
+    order["items"] = items
     order["updated_at"] = now
     return order
 
@@ -324,6 +438,17 @@ async def execute_sync_mutation(
         if not order:
             raise ValueError("No active order found for status update")
         updated = await update_order_status(db, order["id"], status, actor_id, payload.get("reason", ""))
+        return {"order_id": updated["id"], "status": updated["status"]}
+
+    if action == "SERVE_PENDING_ITEMS":
+        order_id = payload.get("orderId")
+        table_id = payload.get("tableId")
+        order = await get_order_or_none(db, order_id) if order_id else None
+        if not order and table_id:
+            order = await get_active_order_for_table(db, table_id)
+        if not order:
+            raise ValueError("No active order found to serve pending items")
+        updated = await serve_pending_items(db, order["id"], actor_id)
         return {"order_id": updated["id"], "status": updated["status"]}
 
     if action == "VOID_ITEM":

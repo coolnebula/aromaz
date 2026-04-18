@@ -37,6 +37,7 @@ export const api = {
     request(`/orders/${orderId}/items/${itemIndex}`, { method: "PATCH", body: JSON.stringify(payload) }),
   voidItem: (orderId, itemIndex, reason) =>
     request(`/orders/${orderId}/items/${itemIndex}/void`, { method: "POST", body: JSON.stringify({ reason }) }),
+  servePending: (orderId) => request(`/orders/${orderId}/serve-pending`, { method: "POST", body: JSON.stringify({}) }),
   updateStatus: (orderId, status, reason = "") =>
     request(`/orders/${orderId}/status`, { method: "POST", body: JSON.stringify({ status, reason }) }),
   applyDiscount: (orderId, amount, managerId, reason) =>

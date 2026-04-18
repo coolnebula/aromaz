@@ -264,10 +264,13 @@ export default function App() {
       setMenu(data.menu);
       setOrderByTable((prev) => {
         const serverActive = data.active_orders || {};
+        const normalizedServerActive = Object.fromEntries(
+          Object.entries(serverActive).map(([tableId, order]) => [tableId, normalizeOrder(order)])
+        );
         const localOnly = Object.fromEntries(
           Object.entries(prev).filter(([, order]) => String(order?.id || "").startsWith("local-"))
         );
-        return { ...serverActive, ...localOnly };
+        return { ...normalizedServerActive, ...localOnly };
       });
       const first = Object.keys(data.menu)[0] || "";
       setSelectedCategory((prev) => prev || first);
@@ -367,7 +370,9 @@ export default function App() {
       if (cached.selectedCategory) setSelectedCategory(cached.selectedCategory);
       if (cached.orderByTable) {
         const cleaned = Object.fromEntries(
-          Object.entries(cached.orderByTable).filter(([, order]) => !["Paid", "Cancelled"].includes(order?.status))
+          Object.entries(cached.orderByTable)
+            .filter(([, order]) => !["Paid", "Cancelled"].includes(order?.status))
+            .map(([tableId, order]) => [tableId, normalizeOrder(order)])
         );
         setOrderByTable(cleaned);
       }
@@ -427,13 +432,19 @@ export default function App() {
 
   async function addItem(item) {
     const current = await ensureOrder(selectedTable);
-    const payload = { name: item.name, price: item.price, qty: 1, modifiers: { less_sugar: false, no_ice: false, note: "" } };
+    const payload = {
+      name: item.name,
+      price: item.price,
+      qty: 1,
+      modifiers: { less_sugar: false, no_ice: false, note: "" },
+    };
+    const localItem = { ...payload, served: false, served_qty: 0, served_at: null };
     if (!syncState.online || current.id.startsWith("local-")) {
       const m = mutation("ADD_ITEM", { tableId: selectedTable, orderId: current.id, ...payload });
       await enqueueMutation(m);
       setOrderByTable((prev) => {
         const base = prev[selectedTable] || current;
-        const nextItems = [...(base.items || []), payload];
+        const nextItems = [...(base.items || []), localItem];
         return {
           ...prev,
           [selectedTable]: {
@@ -461,6 +472,10 @@ export default function App() {
     const idx = STATUS_PIPELINE.indexOf(current.status);
     if (idx < 0 || idx >= STATUS_PIPELINE.length - 1) return;
     const next = STATUS_PIPELINE[idx + 1];
+    if (next === "Billed" && pendingServeCount > 0) {
+      setError("Serve all pending items before moving this order to billed.");
+      return;
+    }
     if (!syncState.online || current.id.startsWith("local-")) {
       const m = mutation("STATUS_UPDATE", { orderId: current.id, tableId: selectedTable, status: next });
       await enqueueMutation(m);
@@ -470,7 +485,17 @@ export default function App() {
           return rest;
         });
       } else {
-        setOrderByTable((prev) => ({ ...prev, [selectedTable]: { ...current, status: next } }));
+        setOrderByTable((prev) => {
+          const nowIso = new Date().toISOString();
+          const nextItems =
+            next === "Served"
+              ? (current.items || []).map((line) => {
+                  if (line.voided || pendingQtyForItem(line) <= 0) return line;
+                  return { ...line, served: true, served_qty: Number(line.qty || 1), served_at: nowIso };
+                })
+              : current.items || [];
+          return { ...prev, [selectedTable]: { ...current, status: next, items: nextItems } };
+        });
       }
       refreshPending();
       return;
@@ -488,6 +513,42 @@ export default function App() {
       setError("");
     } catch (err) {
       setError(err.message || "Unable to update order status.");
+    }
+  }
+
+  async function servePendingItems() {
+    const current = activeOrder;
+    if (!current || current.status !== "Served") return;
+    if (pendingServeCount <= 0) return;
+    const servedAt = new Date().toISOString();
+
+    if (!syncState.online || current.id.startsWith("local-")) {
+      await enqueueMutation(
+        mutation("SERVE_PENDING_ITEMS", {
+          orderId: current.id,
+          tableId: selectedTable,
+        })
+      );
+      setOrderByTable((prev) => {
+        const base = prev[selectedTable];
+        if (!base) return prev;
+        const nextItems = (base.items || []).map((line) => {
+          if (line.voided || pendingQtyForItem(line) <= 0) return line;
+          return { ...line, served: true, served_qty: Number(line.qty || 1), served_at: servedAt };
+        });
+        return { ...prev, [selectedTable]: { ...base, items: nextItems } };
+      });
+      setError("");
+      refreshPending();
+      return;
+    }
+
+    try {
+      const updated = await api.servePending(current.id);
+      setOrderByTable((prev) => ({ ...prev, [selectedTable]: normalizeOrder(updated) }));
+      setError("");
+    } catch (err) {
+      setError(err.message || "Unable to serve newly added items.");
     }
   }
 
@@ -889,7 +950,7 @@ export default function App() {
         const base = prev[selectedTable];
         if (!base) return prev;
         const nextItems = [...(base.items || [])];
-        nextItems[itemIndex] = { ...nextItems[itemIndex], ...payload };
+        nextItems[itemIndex] = normalizeItemServiceState({ ...nextItems[itemIndex], ...payload }, base.status);
         return {
           ...prev,
           [selectedTable]: { ...base, items: nextItems, totals: calcTotals(nextItems, base.totals?.discount || 0) },
@@ -1217,6 +1278,12 @@ export default function App() {
   const nextStatus = getNextStatus(activeStatus);
   const pendingClass = syncState.pending > 0 ? "warn" : "ok";
   const canModifyOrder = activeOrder && !["Billed", "Paid", "Cancelled"].includes(activeStatus);
+  const pendingServeCount = useMemo(
+    () =>
+      (activeOrder?.items || []).reduce((sum, item) => sum + pendingQtyForItem(item), 0),
+    [activeOrder]
+  );
+  const canServePendingItems = activeOrder && activeStatus === "Served" && pendingServeCount > 0;
   const canOpenItemizedBill = activeOrder && ["Served", "Billed"].includes(activeStatus);
   const currentOrderBillItems = useMemo(() => (activeOrder?.items || []).filter((item) => !item.voided), [activeOrder]);
   const hasCurrentBillableItems = currentOrderBillItems.length > 0;
@@ -1453,6 +1520,9 @@ export default function App() {
                 <div className="muted">
                   Status: <span className={`statusPill inline ${statusClassName(activeStatus)}`}>{statusLabel(activeStatus)}</span>
                 </div>
+                {canServePendingItems ? (
+                  <div className="muted pendingServeNotice">{pendingServeCount} qty pending service</div>
+                ) : null}
                 <div className="orderList">
                   {(activeOrder?.items || []).map((item, idx) => (
                     <div key={`${item.name}-${idx}`} className={`orderItem ${item.voided ? "voided" : ""}`}>
@@ -1467,6 +1537,7 @@ export default function App() {
                         {item.modifiers?.less_sugar ? " | less sugar" : ""}
                         {item.modifiers?.no_ice ? " | no ice" : ""}
                         {item.voided ? ` | Cancelled item: ${item.void_reason || "reason missing"}` : ""}
+                        {!item.voided && pendingQtyForItem(item) > 0 ? ` | Pending serve: ${pendingQtyForItem(item)}` : ""}
                       </div>
                       {!item.voided && canModifyOrder && (
                         <div className="row itemActions">
@@ -1489,7 +1560,16 @@ export default function App() {
                   <div className="row"><span>Tax</span><strong>₹{Math.round(totals.tax || 0)}</strong></div>
                   <div className="row"><span>Total</span><strong>₹{Math.round(totals.total || 0)}</strong></div>
                 </div>
-                <button className="primary" onClick={moveStatus} disabled={!activeOrder || !nextStatus}>
+                {canServePendingItems ? (
+                  <button className="secondaryAction" onClick={servePendingItems}>
+                    Serve new items
+                  </button>
+                ) : null}
+                <button
+                  className="primary"
+                  onClick={moveStatus}
+                  disabled={!activeOrder || !nextStatus || (nextStatus === "Billed" && pendingServeCount > 0)}
+                >
                   {nextStatus ? `Move to ${statusLabel(nextStatus)}` : "Status Complete"}
                 </button>
                 <button
@@ -2282,11 +2362,41 @@ function calcTotals(items, discount = 0) {
   return { subtotal, discount: boundedDiscount, tax, total: subtotal - boundedDiscount + tax };
 }
 
+function pendingQtyForItem(item) {
+  if (!item || item.voided) return 0;
+  const qty = Math.max(1, Number(item.qty || 1));
+  const servedRaw = Number(item.served_qty || 0);
+  const servedQty = Math.max(0, Math.min(Number.isFinite(servedRaw) ? servedRaw : 0, qty));
+  return Math.max(qty - servedQty, 0);
+}
+
+function normalizeItemServiceState(item, status) {
+  const qty = Math.max(1, Number(item?.qty || 1));
+  const servedByStatus = ["Served", "Billed", "Paid"].includes(status);
+  const hasServedQty = Object.prototype.hasOwnProperty.call(item || {}, "served_qty");
+  const servedQtyRaw = hasServedQty
+    ? Number(item?.served_qty || 0)
+    : Object.prototype.hasOwnProperty.call(item || {}, "served")
+      ? (item?.served ? qty : 0)
+      : (servedByStatus && !item?.voided ? qty : 0);
+  const servedQty = Math.max(0, Math.min(Number.isFinite(servedQtyRaw) ? servedQtyRaw : 0, qty));
+  const served = !item?.voided && servedQty >= qty;
+  return {
+    ...item,
+    qty,
+    served_qty: servedQty,
+    served,
+    served_at: item?.served_at || null,
+  };
+}
+
 function normalizeOrder(order) {
+  const status = order?.status || "Open";
+  const normalizedItems = (order?.items || []).map((item) => normalizeItemServiceState(item, status));
   return {
     id: order.id,
-    status: order.status,
-    items: order.items || [],
+    status,
+    items: normalizedItems,
     totals: order.totals || { subtotal: 0, discount: 0, tax: 0, total: 0 },
   };
 }
