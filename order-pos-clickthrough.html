@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aromaz POS Mockup</title>
+  <style>
+    :root {
+      --bg: #f3eee7;
+      --card: #ffffff;
+      --line: #e6ddd4;
+      --line-strong: #d6c7ba;
+      --ink: #2a211b;
+      --muted: #695b50;
+      --accent: #6f4a34;
+      --accent-soft: #f7ede4;
+      --ok: #2d7d5b;
+      --warn: #a9731f;
+      --bad: #9a2f2f;
+      --radius: 14px;
+      --touch: 44px;
+      --shadow: 0 8px 22px rgba(42, 33, 27, 0.06);
+      --shell: min(1280px, calc(100vw - 32px));
+    }
+
+    * { box-sizing: border-box; font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 0% 0%, #fbf8f4 0%, var(--bg) 42%, #e9dece 100%);
+      color: var(--ink);
+    }
+    h3 { margin: 0 0 10px; font-size: 1.02rem; font-weight: 650; letter-spacing: 0.01em; }
+    .app { padding: 14px; display: grid; gap: 10px; min-height: 100vh; width: var(--shell); margin: 0 auto; }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      box-shadow: var(--shadow);
+    }
+    .topShell {
+      padding: 12px;
+      background: linear-gradient(180deg, #fff 0%, #fdfaf6 100%);
+      border: 1px solid #e8ddd3;
+      border-radius: 18px;
+      box-shadow: 0 12px 28px rgba(42, 33, 27, 0.08);
+      display: grid;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    .shellHead {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+    .brandBlock {
+      display: inline-flex;
+      flex-direction: column;
+    }
+    .statusRow {
+      display: inline-flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .brand {
+      font-family: "Georgia", "Times New Roman", serif;
+      font-size: 1.24rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+    }
+    .brandSub {
+      display: block;
+      font-size: 0.76rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .chips, .nav { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      background: #fff;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 12px;
+      min-height: var(--touch);
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 120ms ease;
+    }
+    .btn:hover { border-color: var(--line-strong); background: #fcfaf7; }
+    .btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .btn.primary:hover { filter: brightness(1.05); }
+    .btn.danger {
+      background: #fff;
+      color: var(--bad);
+      border-color: #e3c1c1;
+    }
+    .btn.danger:hover { background: #fff5f5; }
+    .btn.active {
+      border-color: #c8ab95;
+      background: var(--accent-soft);
+      color: #5b3f2f;
+    }
+    .shellTabs {
+      margin-top: 2px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      gap: 7px;
+      overflow-x: auto;
+      scrollbar-width: thin;
+      -webkit-overflow-scrolling: touch;
+      align-items: center;
+    }
+    .shellTabs .btn {
+      border-radius: 999px;
+      min-height: 40px;
+      padding-inline: 14px;
+      white-space: nowrap;
+    }
+
+    .view { display: none; }
+    .view.active { display: block; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: 12px; }
+    .workspace { display: grid; grid-template-columns: 240px 1fr 350px; gap: 12px; min-height: 72vh; }
+    .stack { display: grid; gap: 10px; }
+
+    .item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+    }
+    .item.active {
+      border-color: #c6ab94;
+      background: #fdf7f1;
+      box-shadow: inset 0 0 0 1px #e8d8ca;
+    }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    #tableCards .item {
+      border-color: #eadfce;
+      background: linear-gradient(180deg, #fff 0%, #fffcf8 100%);
+      transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+    }
+    #tableCards .item:hover {
+      transform: translateY(-1px);
+      border-color: #d9bfaa;
+      box-shadow: 0 10px 20px rgba(52, 36, 26, 0.08);
+    }
+    #tableCards .item .btn {
+      width: 100%;
+      margin-top: 8px !important;
+    }
+    .menu { display: grid; grid-template-columns: repeat(auto-fill,minmax(190px,1fr)); gap: 10px; }
+    .muted { color: var(--muted); font-size: 0.84rem; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .actions.primaryRow { grid-template-columns: 0.95fr 1.05fr; }
+    .twocol { display: grid; grid-template-columns: 300px 1fr; gap: 12px; }
+    .sectionLead {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #efe6de;
+    }
+    .sectionLead h3 {
+      margin: 0;
+      font-size: 1.14rem;
+      letter-spacing: 0.005em;
+    }
+    .sectionLead .muted {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(20,12,8,.45);
+      padding: 14px;
+      backdrop-filter: blur(2px);
+    }
+    .overlay.show { display: flex; }
+    .modal {
+      width: min(760px, 96vw);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 20px 48px rgba(18, 13, 10, 0.18);
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      min-height: var(--touch);
+      background: #fff;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: #c4a890;
+      box-shadow: 0 0 0 3px #f8ecdf;
+    }
+
+    /* Tablet landscape: keep order flow in focus with table rail on top */
+    @media (max-width: 1220px) {
+      .workspace {
+        grid-template-columns: 1fr 1fr;
+        grid-template-areas:
+          "tables tables"
+          "menu order";
+        min-height: auto;
+      }
+      .workspace > .panel:nth-child(1) { grid-area: tables; }
+      .workspace > .panel:nth-child(2) { grid-area: menu; }
+      .workspace > .panel:nth-child(3) { grid-area: order; }
+      #tableList {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(150px, 1fr);
+        overflow-x: auto;
+        gap: 8px;
+        padding-bottom: 2px;
+      }
+      #tableList .item {
+        min-width: 150px;
+      }
+      .grid4 {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+      }
+    }
+
+    @media (max-width: 1120px) {
+      .shellHead {
+        grid-template-columns: 1fr;
+        justify-items: start;
+        gap: 8px;
+      }
+      .statusRow {
+        justify-content: flex-start;
+      }
+      .workspace {
+        grid-template-columns: 1fr;
+        grid-template-areas: none;
+      }
+      .workspace > .panel:nth-child(1),
+      .workspace > .panel:nth-child(2),
+      .workspace > .panel:nth-child(3) {
+        grid-area: auto;
+      }
+      #tableList {
+        display: grid;
+        grid-auto-flow: row;
+        grid-auto-columns: unset;
+        overflow: visible;
+      }
+      .twocol, .grid4 { grid-template-columns: 1fr; }
+      .actions, .actions.primaryRow { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 760px) {
+      .topShell {
+        border-radius: 14px;
+        padding: 10px;
+      }
+      .shellTabs {
+        margin-top: 2px;
+        padding-top: 8px;
+      }
+      .actions, .actions.primaryRow { grid-template-columns: 1fr; }
+      .app { padding: 10px; }
+      .panel { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topShell">
+      <div class="shellHead">
+        <div class="brandBlock">
+          <div class="brand">Aromaz Cafe</div>
+          <span class="brandSub">Order Studio</span>
+        </div>
+        <div class="statusRow">
+          <span id="syncChip" class="chip">Synced</span>
+          <span id="pendingChip" class="chip">Pending: 0</span>
+          <span id="tableChip" class="chip">Active: T1</span>
+        </div>
+        <button id="networkBtn" class="btn">Go Offline</button>
+      </div>
+      <nav class="shellTabs">
+        <button class="btn active" data-view="tablesView">Tables</button>
+        <button class="btn" data-view="orderView">Take Order</button>
+        <button class="btn" data-view="menuAdminView">Menu Admin</button>
+        <button class="btn" data-view="historyView">History</button>
+        <button class="btn" data-view="reportView">EOD Report</button>
+        <button class="btn" data-view="auditView">Audit</button>
+      </nav>
+    </header>
+
+    <section id="tablesView" class="view active panel">
+      <div class="sectionLead">
+        <h3>Tables Overview</h3>
+        <span class="muted">Tap table to continue service</span>
+      </div>
+      <div id="tableCards" class="grid4"></div>
+    </section>
+
+    <section id="orderView" class="view">
+      <div class="workspace">
+        <div class="panel"><h3>Tables</h3><div id="tableList" class="stack"></div></div>
+        <div class="panel"><h3>Menu</h3><div id="cats" class="chips"></div><div id="menuList" class="menu"></div></div>
+        <div class="panel">
+          <h3 id="orderTitle">Current Order: T1</h3>
+          <div class="row"><span class="muted">Status</span><strong id="statusText">Open</strong></div>
+          <div class="actions"><button id="nextStatusBtn" class="btn">Next Status</button><button id="cancelOrderBtn" class="btn danger">Cancel Order</button></div>
+          <div id="lines" class="stack" style="margin-top:8px;"></div>
+          <div id="emptyText" class="muted">No items yet.</div>
+          <div class="stack" style="margin-top:8px;">
+            <div class="row"><span>Subtotal</span><strong id="sub">₹0</strong></div>
+            <div class="row"><span>Discount</span><strong id="disc">₹0</strong></div>
+            <div class="row"><span>Tax (5%)</span><strong id="tax">₹0</strong></div>
+            <div class="row"><span>Total</span><strong id="total">₹0</strong></div>
+          </div>
+          <div class="actions primaryRow"><button id="discountBtn" class="btn">Discount</button><button id="billBtn" class="btn primary">Generate Bill</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="menuAdminView" class="view">
+      <div class="twocol">
+        <div class="panel">
+          <h3>Menu Management</h3>
+          <label>Category</label><select id="adminCat"></select>
+          <div class="row" style="margin-top:8px;"><input id="newCat" placeholder="New category name"/><button id="addCatBtn" class="btn">Add</button></div>
+          <button id="delCatBtn" class="btn danger" style="margin-top:8px;">Delete Category</button>
+          <hr style="border:0;border-top:1px dashed #d7c8bc;margin:10px 0;">
+          <label>Item name</label><input id="itemName" placeholder="e.g. Cold Brew"/>
+          <label>Price</label><input id="itemPrice" type="number" min="1"/>
+          <div class="actions"><button id="saveItemBtn" class="btn primary">Add Item</button><button id="clearItemBtn" class="btn">Clear</button></div>
+        </div>
+        <div class="panel"><h3>Items</h3><div id="adminItems" class="stack"></div></div>
+      </div>
+    </section>
+
+    <section id="historyView" class="view">
+      <div class="twocol">
+        <div class="panel"><h3>Day-wise Orders</h3><input id="historyDate" type="date" /></div>
+        <div class="panel"><h3>Orders</h3><div id="historyList" class="stack"></div></div>
+      </div>
+    </section>
+
+    <section id="reportView" class="view">
+      <div class="twocol">
+        <div class="panel"><h3>End-of-Day</h3><input id="reportDate" type="date"/><button id="refreshBtn" class="btn" style="margin-top:8px;">Refresh</button></div>
+        <div class="panel"><h3>Summary</h3><div id="reportList" class="stack"></div></div>
+      </div>
+    </section>
+
+    <section id="auditView" class="view panel">
+      <h3>Audit Trail</h3><div id="auditList" class="stack"></div>
+    </section>
+  </div>
+
+  <div id="billModal" class="overlay"><div class="modal"><h3>Bill</h3><div id="billBody"></div><div class="row" style="margin-top:10px;"><button class="btn" data-close="billModal">Back</button><button id="payBtn" class="btn primary">Mark Paid</button></div></div></div>
+  <div id="modModal" class="overlay"><div class="modal"><h3>Edit Item</h3><label><input id="mLess" type="checkbox"/> Less sugar</label><br><label><input id="mIce" type="checkbox"/> No ice</label><textarea id="mNote" rows="3" placeholder="Item note"></textarea><div class="row"><button id="voidBtn" class="btn danger">Void Item</button><button class="btn" data-close="modModal">Cancel</button><button id="saveModBtn" class="btn primary">Save</button></div></div></div>
+  <div id="managerModal" class="overlay"><div class="modal"><h3>Manager Authorization</h3><input id="mgrReason" placeholder="Reason"/><input id="mgrPin" type="password" placeholder="PIN"/><div class="row"><button class="btn" data-close="managerModal">Cancel</button><button id="mgrApproveBtn" class="btn primary">Approve</button></div></div></div>
+  <div id="voidModal" class="overlay"><div class="modal"><h3>Void / Cancel Reason</h3><select id="voidReason"><option value="">Select reason</option><option>Wrong entry</option><option>Customer changed mind</option><option>Kitchen issue</option><option>Other</option></select><textarea id="voidNote" rows="3" placeholder="Optional note"></textarea><div class="row"><button class="btn" data-close="voidModal">Back</button><button id="confirmVoidBtn" class="btn danger">Confirm</button></div></div></div>
+
+  <script>
+    const pipeline = ["Open", "SentToKitchen", "Served", "Billed", "Paid"];
+    const closedStatuses = new Set(["Paid", "Cancelled"]);
+    const taxRate = 0.05, managerPin = "1234";
+    const menu = {
+      "Coffee & Chocolates":[["Espresso",75],["Iced Coffee",125],["Cappuccino",125],["Americano/Black Coffee",80],["Affogato",155],["Vietnamese Iced Coffee",155],["Hot Chocolate",120]],
+      "Tea & Infusions":[["Darjeeling Tea",80],["Earl Grey Tea",70],["Mint Peppermint Infusion",70],["Calming Chamomile",70],["Cranberry Apple Infusion",70],["Lemongrass Ginger",70],["Wild Berry Iced Infusion",70]],
+      "Small Bites":[["Veggies Finger",99],["Crispy Potato",99],["Chicken Sausage",120],["Fish Fry",100],["Chilly Cheese",100],["Garlic Toast",100]],
+      "Sandwiches":[["Veg Cheese Sandwich",110],["Chicken Ham Cheese Sandwich",150],["Pork Ham Cheese Sandwich",200],["Bacon Cheese Sandwich",200]],
+      "Chilled Cans":[["Diet Coke",60],["Thums Up",60],["Red Bull",140]]
+    };
+    const st = { online:true, pending:0, activeTable:"T1", category:"Coffee & Chocolates", adminCat:"Coffee & Chocolates", editingItemIdx:null, editingLineId:null, pendingVoid:null, cancelOrder:false, today:new Date().toISOString().slice(0,10), tables:{T1:{status:"Open",lines:[],discount:0,orderId:null,openedAt:null},T2:{status:"Open",lines:[],discount:0,orderId:null,openedAt:null},T3:{status:"Open",lines:[],discount:0,orderId:null,openedAt:null},T4:{status:"Open",lines:[],discount:0,orderId:null,openedAt:null}}, history:{}, audit:[] };
+    const $=(id)=>document.getElementById(id), money=(n)=>`₹${Math.max(0,Math.round(n))}`, uid=()=>Math.random().toString(36).slice(2,8), now=()=>new Date().toLocaleTimeString();
+    const totals=(t)=>{const s=t.lines.reduce((a,l)=>a+l.price*l.qty,0), d=Math.min(t.discount||0,s), tx=(s-d)*taxRate; return {s,d,tx,ttl:s-d+tx};};
+    const audit=(a,d,actor="Cashier")=>{st.audit.unshift({t:now(),a,d,actor}); if(st.audit.length>200)st.audit.length=200;};
+    const sync=(label)=>{ if(!st.online) st.pending++; audit("SYNC_EVENT",`${label}${st.online?" (online)":" (queued)"}`); };
+    const open=(id)=>$(id).classList.add("show"), close=(id)=>$(id).classList.remove("show");
+    const lineItemCount=(t)=>t.lines.reduce((sum,l)=>sum+l.qty,0);
+    function ensureOrderSession(tableId){
+      const t=st.tables[tableId];
+      if(!t.orderId){
+        t.orderId=`ORD-${uid().toUpperCase()}`;
+        t.openedAt=now();
+      }
+      if(closedStatuses.has(t.status)) t.status="Open";
+      return t;
+    }
+    function upsertHistory(entry){
+      st.history[st.today] ||= [];
+      const idx=st.history[st.today].findIndex((x)=>x.id===entry.id);
+      if(idx>=0) st.history[st.today][idx]={...st.history[st.today][idx], ...entry};
+      else st.history[st.today].push(entry);
+    }
+    function snapshotOrder(tableId,status,reason=""){
+      const t=st.tables[tableId];
+      const z=totals(t);
+      return {
+        id:t.orderId || `ORD-${uid().toUpperCase()}`,
+        table:tableId,
+        status,
+        amount:Math.round(z.ttl),
+        gross:Math.round(z.s),
+        discount:Math.round(z.d),
+        tax:Math.round(z.tx),
+        items:lineItemCount(t),
+        time:now(),
+        reason
+      };
+    }
+    function resetTableOrder(tableId,statusAfterReset){
+      const t=st.tables[tableId];
+      t.lines=[];
+      t.discount=0;
+      t.orderId=null;
+      t.openedAt=null;
+      t.status=statusAfterReset;
+    }
+
+    function normalizeCats(){ const cats=Object.keys(menu); if(!menu[st.category]) st.category=cats[0]; if(!menu[st.adminCat]) st.adminCat=cats[0]; }
+    function setView(id){ document.querySelectorAll(".view").forEach(v=>v.classList.remove("active")); $(id).classList.add("active"); document.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("active", b.dataset.view===id)); }
+
+    function renderTables(){ const root=$("tableCards"); root.innerHTML=""; Object.entries(st.tables).forEach(([id,t])=>{const z=totals(t); const n=document.createElement("div"); n.className="item"; n.innerHTML=`<div class="row"><strong>${id}</strong><span class="muted">${t.status}</span></div><div class="muted">Items: ${lineItemCount(t)}</div><div class="muted">Total: ${money(z.ttl)}</div><button class="btn primary" style="margin-top:8px;">Open Table</button>`; n.querySelector("button").onclick=()=>{st.activeTable=id; setView("orderView"); renderAll();}; root.appendChild(n); }); }
+    function renderTableList(){ const root=$("tableList"); root.innerHTML=""; Object.entries(st.tables).forEach(([id,t])=>{const n=document.createElement("div"); n.className=`item ${id===st.activeTable?"active":""}`; n.innerHTML=`<div class="row"><strong>${id}</strong><span class="muted">${t.status}</span></div>`; n.onclick=()=>{st.activeTable=id; renderAll();}; root.appendChild(n); }); }
+    function renderCats(){ const root=$("cats"); root.innerHTML=""; Object.keys(menu).forEach(c=>{const b=document.createElement("button"); b.className=`btn ${c===st.category?"active":""}`; b.textContent=c; b.onclick=()=>{st.category=c; renderMenu();}; root.appendChild(b); }); }
+    function addItem(name,price){ const t=ensureOrderSession(st.activeTable); if(t.status==="Billed") return alert("Order is already billed. Mark paid before taking a new order."); let line=t.lines.find(l=>l.name===name&&!l.note&&l.mods.length===0); if(!line){ line={id:uid(),name,price,qty:0,mods:[],note:""}; t.lines.push(line);} line.qty++; sync(`ADD_ITEM ${name} ${st.activeTable}`); audit("ADD_ITEM",`${st.activeTable}: ${name} x${line.qty}`); renderAll(); }
+    function renderMenu(){ normalizeCats(); const root=$("menuList"); root.innerHTML=""; (menu[st.category]||[]).forEach(([name,price])=>{const n=document.createElement("div"); n.className="item"; n.innerHTML=`<strong>${name}</strong><div class="row"><span>${money(price)}</span><button class="btn">Add</button></div>`; n.querySelector("button").onclick=()=>addItem(name,price); root.appendChild(n); }); }
+    function renderOrder(){ const t=st.tables[st.activeTable], z=totals(t); $("orderTitle").textContent=`Current Order: ${st.activeTable}`; $("statusText").textContent=t.status; $("sub").textContent=money(z.s); $("disc").textContent=`-${money(z.d)}`; $("tax").textContent=money(z.tx); $("total").textContent=money(z.ttl); $("emptyText").style.display=t.lines.length?"none":"block";
+      const root=$("lines"); root.innerHTML=""; t.lines.forEach(line=>{const n=document.createElement("div"); const mod=line.mods.length?` • ${line.mods.join(", ")}`:""; const note=line.note?` • ${line.note}`:""; n.className="item"; n.innerHTML=`<div><strong>${line.name}</strong><div class="muted">${money(line.price)}${mod}${note}</div></div><div class="row"><button class="btn" data-dec>-</button><span>${line.qty}</span><button class="btn" data-inc>+</button><button class="btn" data-edit>Edit</button></div>`; n.querySelector("[data-inc]").onclick=()=>{line.qty++; sync(`INC ${line.name}`); audit("UPDATE_ITEM",`${st.activeTable}: ${line.name} qty ${line.qty}`); renderAll();}; n.querySelector("[data-dec]").onclick=()=>{ if(line.qty===1){ st.pendingVoid={table:st.activeTable,line:line.id}; st.cancelOrder=false; $("voidReason").value=""; $("voidNote").value=""; open("voidModal"); } else { line.qty--; sync(`DEC ${line.name}`); audit("UPDATE_ITEM",`${st.activeTable}: ${line.name} qty ${line.qty}`); renderAll(); } }; n.querySelector("[data-edit]").onclick=()=>{ st.editingLineId=line.id; $("mLess").checked=line.mods.includes("Less sugar"); $("mIce").checked=line.mods.includes("No ice"); $("mNote").value=line.note||""; open("modModal"); }; root.appendChild(n); });
+    }
+    function nextStatus(){ const t=st.tables[st.activeTable], i=pipeline.indexOf(t.status); if(closedStatuses.has(t.status)) return alert("Start a new order by adding item."); if(t.lines.length===0) return alert("Add items first."); if(t.status==="Billed") return alert("This order is billed. Use Mark Paid."); if(i>=0 && i<pipeline.length-1){ t.status=pipeline[i+1]; sync(`STATUS ${st.activeTable}->${t.status}`); audit("STATUS_CHANGE",`${st.activeTable}: ${pipeline[i]} -> ${t.status}`); renderAll(); } }
+    function bill(){ const t=st.tables[st.activeTable]; if(!t.lines.length) return alert("No items in order."); if(t.status!=="Served" && t.status!=="Billed") return alert("Move order to Served before billing."); ensureOrderSession(st.activeTable); t.status="Billed"; upsertHistory(snapshotOrder(st.activeTable,"Billed")); sync(`MARK_BILLED ${st.activeTable}`); audit("MARK_BILLED",`${st.activeTable}: ${t.orderId}`); const z=totals(t), items=t.lines.map(l=>`<div class="row"><span>${l.name} x${l.qty}</span><strong>${money(l.qty*l.price)}</strong></div>`).join(""); $("billBody").innerHTML=`<div class="muted">Order: ${t.orderId} • Opened: ${t.openedAt||"-"}</div>${items}<hr><div class="row"><span>Subtotal</span><strong>${money(z.s)}</strong></div><div class="row"><span>Discount</span><strong>-${money(z.d)}</strong></div><div class="row"><span>Tax</span><strong>${money(z.tx)}</strong></div><div class="row"><span>Total</span><strong>${money(z.ttl)}</strong></div>`; open("billModal"); }
+    function markPaid(){ const t=st.tables[st.activeTable]; if(t.status!=="Billed") return alert("Order must be billed before marking paid."); const snap=snapshotOrder(st.activeTable,"Paid"); upsertHistory(snap); sync(`MARK_PAID ${st.activeTable}`); audit("MARK_PAID",`${st.activeTable}: ${money(snap.amount)}`); resetTableOrder(st.activeTable,"Paid"); close("billModal"); setView("historyView"); renderAll(); }
+
+    function renderMenuAdmin(){ normalizeCats(); const cats=Object.keys(menu); $("adminCat").innerHTML=cats.map(c=>`<option value="${c}">${c}</option>`).join(""); $("adminCat").value=st.adminCat; const root=$("adminItems"); root.innerHTML=""; const items=menu[st.adminCat]||[]; if(!items.length) root.innerHTML=`<div class="item muted">No items.</div>`;
+      items.forEach(([name,price],idx)=>{const n=document.createElement("div"); n.className="item"; n.innerHTML=`<div class="row"><strong>${name}</strong><strong>${money(price)}</strong></div><div class="row" style="margin-top:8px;"><button class="btn" data-e>Edit</button><button class="btn danger" data-d>Delete</button></div>`; n.querySelector("[data-e]").onclick=()=>{st.editingItemIdx=idx; $("itemName").value=name; $("itemPrice").value=price; $("saveItemBtn").textContent="Update Item";}; n.querySelector("[data-d]").onclick=()=>{menu[st.adminCat].splice(idx,1); sync(`MENU_DELETE_ITEM ${name}`); audit("MENU_DELETE_ITEM",`${st.adminCat}: ${name}`); clearAdminEditor(); renderAll();}; root.appendChild(n); });
+    }
+    function clearAdminEditor(){ st.editingItemIdx=null; $("itemName").value=""; $("itemPrice").value=""; $("saveItemBtn").textContent="Add Item"; }
+    function addCategory(){ const name=$("newCat").value.trim(); if(!name) return alert("Enter category name."); if(menu[name]) return alert("Category already exists."); menu[name]=[]; st.adminCat=name; st.category=name; $("newCat").value=""; sync(`MENU_ADD_CATEGORY ${name}`); audit("MENU_ADD_CATEGORY",name); clearAdminEditor(); renderAll(); }
+    function deleteCategory(){ const cat=st.adminCat; if((menu[cat]||[]).length) return alert("Category must be empty first."); delete menu[cat]; if(!Object.keys(menu).length) menu["Default"]=[]; normalizeCats(); sync(`MENU_DELETE_CATEGORY ${cat}`); audit("MENU_DELETE_CATEGORY",cat); clearAdminEditor(); renderAll(); }
+    function saveAdminItem(){ const cat=st.adminCat, name=$("itemName").value.trim(), price=Number($("itemPrice").value); if(!name) return alert("Item name required."); if(!Number.isFinite(price)||price<=0) return alert("Price must be positive.");
+      if(st.editingItemIdx===null){ menu[cat].push([name,Math.round(price)]); sync(`MENU_ADD_ITEM ${name}`); audit("MENU_ADD_ITEM",`${cat}: ${name} ${money(price)}`); }
+      else { const old=menu[cat][st.editingItemIdx]; menu[cat][st.editingItemIdx]=[name,Math.round(price)]; sync(`MENU_UPDATE_ITEM ${old[0]}->${name}`); audit("MENU_UPDATE_ITEM",`${cat}: ${old[0]} -> ${name}`); }
+      clearAdminEditor(); renderAll();
+    }
+
+    function renderHistory(){ const d=$("historyDate").value||st.today, root=$("historyList"), rows=st.history[d]||[]; root.innerHTML=""; if(!rows.length){ root.innerHTML=`<div class="item muted">No orders for ${d}</div>`; return; } rows.slice().reverse().forEach(r=>{const reason=r.reason?` • Reason: ${r.reason}`:""; const n=document.createElement("div"); n.className="item"; n.innerHTML=`<div class="row"><strong>${r.id}</strong><span>${r.time}</span></div><div class="row"><span>${r.table} • ${r.status}</span><strong>${money(r.amount)}</strong></div><div class="muted">Items: ${r.items||0} • Gross: ${money(r.gross||0)} • Discount: ${money(r.discount||0)}${reason}</div>`; root.appendChild(n);}); }
+    function renderReport(){ const d=$("reportDate").value||st.today, rows=st.history[d]||[]; const paidRows=rows.filter(r=>r.status==="Paid"), billedRows=rows.filter(r=>r.status==="Billed"), cancelledRows=rows.filter(r=>r.status==="Cancelled"); const total=paidRows.reduce((s,r)=>s+r.amount,0), outstanding=billedRows.reduce((s,r)=>s+r.amount,0), itemsSold=paidRows.reduce((s,r)=>s+(r.items||0),0); $("reportList").innerHTML=`<div class="item"><strong>Total Orders:</strong> ${rows.length}</div><div class="item"><strong>Paid:</strong> ${paidRows.length} | <strong>Billed (Unpaid):</strong> ${billedRows.length} | <strong>Cancelled:</strong> ${cancelledRows.length}</div><div class="item"><strong>Net Sales (Paid):</strong> ${money(total)} | <strong>Outstanding:</strong> ${money(outstanding)}</div><div class="item"><strong>Items Sold (Paid):</strong> ${itemsSold}</div><div class="item"><strong>Pending Sync:</strong> ${st.pending}</div>`; }
+    function renderAudit(){ const root=$("auditList"); root.innerHTML=""; if(!st.audit.length){ root.innerHTML=`<div class="item muted">No audit events.</div>`; return; } st.audit.slice(0,80).forEach(a=>{const n=document.createElement("div"); n.className="item"; n.innerHTML=`<div class="row"><strong>${a.a}</strong><span>${a.t}</span></div><div class="muted">${a.actor} • ${a.d}</div>`; root.appendChild(n);}); }
+    function renderBadges(){ $("tableChip").textContent=`Active: ${st.activeTable}`; $("pendingChip").textContent=`Pending: ${st.pending}`; const c=$("syncChip"); c.textContent=st.online?(st.pending?"Pending":"Synced"):"Offline"; c.style.color=st.online?(st.pending?"var(--warn)":"var(--ok)"):"var(--bad)"; $("networkBtn").textContent=st.online?"Go Offline":"Go Online"; }
+    function renderAll(){ normalizeCats(); renderBadges(); renderTables(); renderTableList(); renderCats(); renderMenu(); renderOrder(); renderMenuAdmin(); renderHistory(); renderReport(); renderAudit(); }
+
+    document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>setView(b.dataset.view));
+    document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>close(b.dataset.close));
+    $("networkBtn").onclick=()=>{ st.online=!st.online; if(st.online&&st.pending){ audit("SYNC_FLUSH",`Uploaded ${st.pending} events`); st.pending=0; } renderAll(); };
+    $("nextStatusBtn").onclick=nextStatus; $("billBtn").onclick=bill; $("payBtn").onclick=markPaid; $("discountBtn").onclick=()=>{ $("mgrReason").value=""; $("mgrPin").value=""; open("managerModal"); };
+    $("mgrApproveBtn").onclick=()=>{ const pin=$("mgrPin").value.trim(), reason=$("mgrReason").value.trim(); if(!reason) return alert("Reason required."); if(pin!==managerPin) return alert("Invalid manager PIN (mock: 1234)."); const t=st.tables[st.activeTable]; t.discount=Math.round(totals(t).s*0.1); sync(`DISCOUNT ${st.activeTable}`); audit("DISCOUNT_APPROVED",`${st.activeTable}: ${money(t.discount)} (${reason})`,"Manager"); close("managerModal"); renderAll(); };
+    $("saveModBtn").onclick=()=>{ const t=st.tables[st.activeTable], l=t.lines.find(x=>x.id===st.editingLineId); if(!l) return; l.mods=[]; if($("mLess").checked) l.mods.push("Less sugar"); if($("mIce").checked) l.mods.push("No ice"); l.note=$("mNote").value.trim(); sync(`EDIT_ITEM ${l.name}`); audit("EDIT_ITEM",`${st.activeTable}: ${l.name} modifiers/notes`); close("modModal"); renderAll(); };
+    $("voidBtn").onclick=()=>{ close("modModal"); st.pendingVoid={table:st.activeTable,line:st.editingLineId}; st.cancelOrder=false; $("voidReason").value=""; $("voidNote").value=""; open("voidModal"); };
+    $("cancelOrderBtn").onclick=()=>{ st.cancelOrder=true; st.pendingVoid=null; $("voidReason").value=""; $("voidNote").value=""; open("voidModal"); };
+    $("confirmVoidBtn").onclick=()=>{ const reason=$("voidReason").value, note=$("voidNote").value.trim(); if(!reason) return alert("Select reason."); if(st.cancelOrder){ const t=st.tables[st.activeTable]; if(lineItemCount(t)===0){ st.cancelOrder=false; close("voidModal"); return; } ensureOrderSession(st.activeTable); const why=`${reason}${note?` - ${note}`:""}`; upsertHistory(snapshotOrder(st.activeTable,"Cancelled",why)); sync(`CANCEL_ORDER ${st.activeTable}`); audit("ORDER_CANCELLED",`${st.activeTable}: ${why}`); resetTableOrder(st.activeTable,"Cancelled"); st.cancelOrder=false; close("voidModal"); renderAll(); return; } if(!st.pendingVoid) return; const t=st.tables[st.pendingVoid.table], idx=t.lines.findIndex(x=>x.id===st.pendingVoid.line); if(idx>=0){ const name=t.lines[idx].name; t.lines.splice(idx,1); sync(`VOID_ITEM ${name}`); audit("VOID_ITEM",`${st.pendingVoid.table}: ${name} (${reason}${note?`, ${note}`:""})`); } st.pendingVoid=null; close("voidModal"); renderAll(); };
+    $("historyDate").onchange=renderHistory; $("reportDate").onchange=renderReport; $("refreshBtn").onclick=renderReport;
+    $("adminCat").onchange=(e)=>{ st.adminCat=e.target.value; clearAdminEditor(); renderMenuAdmin(); };
+    $("addCatBtn").onclick=addCategory; $("delCatBtn").onclick=deleteCategory; $("saveItemBtn").onclick=saveAdminItem; $("clearItemBtn").onclick=clearAdminEditor;
+
+    addItem("Espresso",75); addItem("Garlic Toast",100); st.activeTable="T2"; addItem("Mint Peppermint Infusion",70); st.tables.T2.status="SentToKitchen"; st.activeTable="T1";
+    st.history[st.today]=[{id:"ORD-9XAZ1",table:"T4",status:"Paid",amount:280,time:"6:14:02 PM"},{id:"ORD-8PMN3",table:"T3",status:"Paid",amount:640,time:"7:03:45 PM"}];
+    $("historyDate").value=st.today; $("reportDate").value=st.today; renderAll();
+  </script>
+</body>
+</html>

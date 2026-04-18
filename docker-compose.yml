@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile
+      args:
+        VITE_API_BASE_URL: /api
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
