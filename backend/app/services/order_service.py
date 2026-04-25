@@ -5,16 +5,22 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.schemas import ModifierPayload, OrderItemCreate, OrderItemUpdate, OrderStatus
+from app.services.app_settings_service import get_tax_rate_percent
 
 
 PIPELINE = ["Open", "Served", "Billed", "Paid"]
 TABLES = ["T1", "T2", "T3", "T4"]
 
 
-def _totals(items: list[dict[str, Any]], discount: float = 0) -> dict[str, float]:
+def _totals(items: list[dict[str, Any]], discount: float = 0, tax_rate_percent: float | None = None) -> dict[str, float]:
     subtotal = sum((i["price"] * i["qty"]) for i in items if not i.get("voided"))
     discount = min(discount, subtotal)
-    tax = round((subtotal - discount) * 0.05, 2)
+    if tax_rate_percent is None:
+        from app.config import settings as _settings  # local import to avoid import cycles in tests
+
+        tax_rate_percent = float(_settings.tax_rate_percent)
+    tax_rate = max(0.0, min(float(tax_rate_percent), 100.0)) / 100.0
+    tax = round((subtotal - discount) * tax_rate, 2)
     total = round(subtotal - discount + tax, 2)
     return {"subtotal": subtotal, "discount": discount, "tax": tax, "total": total}
 
@@ -30,6 +36,35 @@ def _safe_qty(value: Any) -> int:
     except (TypeError, ValueError):
         return 1
     return max(qty, 1)
+
+
+def bill_amounts_for_ebill(order: dict[str, Any]) -> dict[str, float]:
+    """Subtotal, discount, tax, and total for e-bill views (aligns with stored order.totals when available)."""
+    items_for_math = [
+        {
+            "price": float(i.get("price") or 0),
+            "qty": _safe_qty(i.get("qty", 1)),
+            "voided": bool(i.get("voided")),
+        }
+        for i in (order.get("items") or [])
+    ]
+    raw_discount = float((order.get("totals") or {}).get("discount", 0) or 0)
+    computed = _totals(items_for_math, raw_discount)
+    stored = order.get("totals") or {}
+    if not stored:
+        return computed
+    required_keys = {"subtotal", "discount", "tax", "total"}
+    if not required_keys.issubset(stored.keys()):
+        return computed
+    # Prefer persisted totals (e.g. after tax-rate changes) when the document is well-formed.
+    try:
+        subtotal = float(stored.get("subtotal", 0) or 0)
+        discount = float(stored.get("discount", 0) or 0)
+        tax = float(stored.get("tax", 0) or 0)
+        total = float(stored.get("total", 0) or 0)
+    except (TypeError, ValueError):
+        return computed
+    return {"subtotal": subtotal, "discount": discount, "tax": tax, "total": total}
 
 
 def _normalize_item_service_state(item: dict[str, Any], status: str) -> dict[str, Any]:
@@ -95,12 +130,13 @@ async def create_order(db: AsyncIOMotorDatabase, table_id: str, actor_id: str) -
         return active
 
     now = datetime.utcnow()
+    tax_rate = await get_tax_rate_percent(db)
     doc = {
         "table_id": table_id,
         "status": "Open",
         "items": [],
         "discount": 0.0,
-        "totals": _totals([], 0),
+        "totals": _totals([], 0, tax_rate_percent=tax_rate),
         "created_at": now,
         "updated_at": now,
     }
@@ -128,6 +164,7 @@ async def add_item(db: AsyncIOMotorDatabase, order_id: str, payload: OrderItemCr
         raise ValueError("Order not found")
     if order["status"] in {"Billed", "Paid", "Cancelled"}:
         raise ValueError("Cannot modify billed/paid/cancelled order")
+    tax_rate = await get_tax_rate_percent(db)
 
     item = payload.model_dump()
     item["voided"] = False
@@ -138,7 +175,7 @@ async def add_item(db: AsyncIOMotorDatabase, order_id: str, payload: OrderItemCr
     item["served_qty"] = 0
     item["served_at"] = None
     order["items"].append(item)
-    order["totals"] = _totals(order["items"], order.get("discount", 0))
+    order["totals"] = _totals(order["items"], order.get("discount", 0), tax_rate_percent=tax_rate)
     order["updated_at"] = datetime.utcnow()
 
     await db.orders.update_one(
@@ -157,6 +194,7 @@ async def update_item(
         raise ValueError("Order not found")
     if order["status"] in {"Billed", "Paid", "Cancelled"}:
         raise ValueError("Cannot modify billed/paid/cancelled order")
+    tax_rate = await get_tax_rate_percent(db)
     if item_index < 0 or item_index >= len(order["items"]):
         raise ValueError("Invalid item index")
     if order["items"][item_index].get("voided"):
@@ -170,7 +208,7 @@ async def update_item(
     next_item = _normalize_item_service_state(next_item, order.get("status", "Open"))
     order["items"][item_index] = next_item
     order["updated_at"] = datetime.utcnow()
-    order["totals"] = _totals(order["items"], order.get("discount", 0))
+    order["totals"] = _totals(order["items"], order.get("discount", 0), tax_rate_percent=tax_rate)
 
     await db.orders.update_one(
         {"_id": ObjectId(order_id)},
@@ -193,6 +231,7 @@ async def void_item(
         raise ValueError("Order not found")
     if order["status"] in {"Billed", "Paid", "Cancelled"}:
         raise ValueError("Cannot modify billed/paid/cancelled order")
+    tax_rate = await get_tax_rate_percent(db)
     if item_index < 0 or item_index >= len(order["items"]):
         raise ValueError("Invalid item index")
     if not reason.strip():
@@ -206,7 +245,7 @@ async def void_item(
     order["items"][item_index]["voided_at"] = now
     order["items"][item_index]["voided_by"] = actor_id
     order["updated_at"] = now
-    order["totals"] = _totals(order["items"], order.get("discount", 0))
+    order["totals"] = _totals(order["items"], order.get("discount", 0), tax_rate_percent=tax_rate)
     await db.orders.update_one(
         {"_id": ObjectId(order_id)},
         {"$set": {"items": order["items"], "totals": order["totals"], "updated_at": order["updated_at"]}},
@@ -247,15 +286,16 @@ async def get_active_order_for_table(db: AsyncIOMotorDatabase, table_id: str) ->
     return doc
 
 
-def normalize_order_response(order: dict[str, Any]) -> dict[str, Any]:
+async def normalize_order_response(db: AsyncIOMotorDatabase, order: dict[str, Any]) -> dict[str, Any]:
     normalized_items = _normalize_items_service_state(order.get("items", []), order.get("status", "Open"))
+    tax_rate = await get_tax_rate_percent(db)
     return {
         "id": order.get("id") or str(order["_id"]),
         "table_id": order["table_id"],
         "status": order["status"],
         "items": normalized_items,
         "discount": order.get("discount", 0),
-        "totals": order.get("totals", _totals(normalized_items, order.get("discount", 0))),
+        "totals": _totals(normalized_items, order.get("discount", 0), tax_rate_percent=tax_rate),
         "updated_at": order.get("updated_at"),
     }
 
@@ -351,10 +391,11 @@ async def apply_discount(
         raise PermissionError("Manager authorization required")
     if not reason.strip():
         raise ValueError("Discount reason is required")
+    tax_rate = await get_tax_rate_percent(db)
 
-    subtotal = sum((i["price"] * i["qty"]) for i in order["items"])
+    subtotal = sum((i["price"] * i["qty"]) for i in order["items"] if not i.get("voided"))
     discount = min(amount, subtotal)
-    totals = _totals(order["items"], discount)
+    totals = _totals(order["items"], discount, tax_rate_percent=tax_rate)
 
     now = datetime.utcnow()
     await db.orders.update_one(
@@ -371,6 +412,24 @@ async def apply_discount(
     order["totals"] = totals
     order["updated_at"] = now
     return order
+
+
+async def recompute_open_order_totals_for_tax_rate_change(db: AsyncIOMotorDatabase) -> int:
+    """Recompute stored totals for all non-closed orders after tax rate change."""
+    tax_rate = await get_tax_rate_percent(db)
+    query = {"status": {"$in": ["Open", "Served", "Billed", "SentToKitchen"]}}
+    count = 0
+    async for order in db.orders.find(query, {"_id": 1, "items": 1, "discount": 1, "status": 1}):
+        status = str(order.get("status") or "Open")
+        items = _normalize_items_service_state(order.get("items", []), status)
+        discount = float(order.get("discount", 0) or 0)
+        totals = _totals(items, discount, tax_rate_percent=tax_rate)
+        await db.orders.update_one(
+            {"_id": order["_id"]},
+            {"$set": {"totals": totals, "items": items, "updated_at": datetime.utcnow()}},
+        )
+        count += 1
+    return count
 
 
 async def delete_order(db: AsyncIOMotorDatabase, order_id: str, actor_id: str, reason: str = "") -> None:

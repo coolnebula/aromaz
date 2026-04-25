@@ -11,6 +11,7 @@ from app.routers.health import router as health_router
 from app.routers.menu import router as menu_router
 from app.routers.orders import router as orders_router
 from app.routers.reports import router as reports_router
+from app.routers.settings import router as settings_router
 from app.routers.sync import router as sync_router
 
 
@@ -32,4 +33,5 @@ app.include_router(menu_router, prefix="/api", dependencies=[Depends(require_ses
 app.include_router(orders_router, prefix="/api", dependencies=[Depends(require_session)])
 app.include_router(sync_router, prefix="/api", dependencies=[Depends(require_session)])
 app.include_router(reports_router, prefix="/api", dependencies=[Depends(require_session)])
+app.include_router(settings_router, prefix="/api", dependencies=[Depends(require_session)])
 app.include_router(ebill_router, prefix="/api", dependencies=[Depends(require_session)])

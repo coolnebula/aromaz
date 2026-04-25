@@ -29,6 +29,12 @@ export const api = {
     }),
   logout: () => request("/access/logout", { method: "POST" }),
   getBootstrap: () => request("/bootstrap"),
+  getTaxSettings: () => request("/settings/tax"),
+  putTaxSettings: (taxRatePercent, actorId = "owner") =>
+    request("/settings/tax", {
+      method: "PUT",
+      body: JSON.stringify({ tax_rate_percent: taxRatePercent, actor_id: actorId }),
+    }),
   getOrder: (orderId) => request(`/orders/${orderId}`),
   deleteOrder: (orderId) => request(`/orders/${orderId}`, { method: "DELETE" }),
   createOrder: (tableId) => request("/orders", { method: "POST", body: JSON.stringify({ table_id: tableId }) }),

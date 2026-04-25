@@ -31,7 +31,7 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 @router.post("")
 async def create_order_route(payload: OrderCreate, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
     created = await create_order(db, payload.table_id, payload.actor_id)
-    return normalize_order_response(created)
+    return await normalize_order_response(db, created)
 
 
 @router.get("/{order_id}")
@@ -39,14 +39,14 @@ async def get_order_route(order_id: str, db: AsyncIOMotorDatabase = Depends(get_
     order = await get_order_or_none(db, order_id)
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    return normalize_order_response(order)
+    return await normalize_order_response(db, order)
 
 
 @router.post("/{order_id}/items")
 async def add_item_route(order_id: str, payload: OrderItemCreate, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
     try:
         updated = await add_item(db, order_id, payload, actor_id="cashier-demo")
-        return normalize_order_response(updated)
+        return await normalize_order_response(db, updated)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -57,7 +57,7 @@ async def update_item_route(
 ) -> dict:
     try:
         updated = await update_item(db, order_id, item_index, payload, actor_id="cashier-demo")
-        return normalize_order_response(updated)
+        return await normalize_order_response(db, updated)
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 400
@@ -70,7 +70,7 @@ async def void_item_route(
 ) -> dict:
     try:
         updated = await void_item(db, order_id, item_index, payload.reason, payload.actor_id)
-        return normalize_order_response(updated)
+        return await normalize_order_response(db, updated)
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 400
@@ -81,7 +81,7 @@ async def void_item_route(
 async def update_status_route(order_id: str, payload: StatusUpdate, db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
     try:
         updated = await update_order_status(db, order_id, payload.status, payload.actor_id, payload.reason)
-        return normalize_order_response(updated)
+        return await normalize_order_response(db, updated)
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 400
@@ -94,7 +94,7 @@ async def serve_pending_route(
 ) -> dict:
     try:
         updated = await serve_pending_items(db, order_id, payload.actor_id)
-        return normalize_order_response(updated)
+        return await normalize_order_response(db, updated)
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 400
@@ -107,7 +107,7 @@ async def apply_discount_route(
 ) -> dict:
     try:
         updated = await apply_discount(db, order_id, payload.amount, payload.manager_id, payload.reason)
-        return normalize_order_response(updated)
+        return await normalize_order_response(db, updated)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:

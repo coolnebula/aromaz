@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.services.order_service import bill_amounts_for_ebill
 
 
 class EmailDeliveryError(Exception):
@@ -81,13 +82,19 @@ def _build_bill_email_html(order: dict, ebill_url: str) -> str:
         "<tr><td colspan='2' style='padding:12px 0;color:#7a6a5d'>No billable items.</td></tr>"
     )
 
-    subtotal = sum(float(item.get("price") or 0) * float(item.get("qty") or 1) for item in items)
-    raw_discount = float((order.get("totals") or {}).get("discount", 0) or 0)
-    discount = min(max(raw_discount, 0), subtotal)
-    total = subtotal - discount
+    amounts = bill_amounts_for_ebill(order)
+    subtotal = float(amounts.get("subtotal", 0) or 0)
+    discount = float(amounts.get("discount", 0) or 0)
+    tax = float(amounts.get("tax", 0) or 0)
+    total = float(amounts.get("total", 0) or 0)
     discount_row = (
         f"<tr><td style='padding:2px 0;color:#44362c'>Discount</td><td align='right' style='padding:2px 0;font-weight:700'>-₹{discount:.2f}</td></tr>"
         if discount > 0
+        else ""
+    )
+    tax_row = (
+        f"<tr><td style='padding:2px 0;color:#44362c'>Tax</td><td align='right' style='padding:2px 0;font-weight:700'>₹{tax:.2f}</td></tr>"
+        if tax > 0
         else ""
     )
 
@@ -116,6 +123,7 @@ def _build_bill_email_html(order: dict, ebill_url: str) -> str:
         f"<tr><td style='padding:2px 0;color:#44362c'>Items</td><td align='right' style='padding:2px 0;font-weight:700'>{sum(int(i.get('qty') or 1) for i in items)}</td></tr>"
         f"<tr><td style='padding:2px 0;color:#44362c'>Subtotal</td><td align='right' style='padding:2px 0;font-weight:700'>₹{subtotal:.2f}</td></tr>"
         f"{discount_row}"
+        f"{tax_row}"
         f"<tr><td style='padding:4px 0;color:#2f241c;font-size:18px;font-weight:800'>Total</td><td align='right' style='padding:4px 0;color:#2f241c;font-size:18px;font-weight:800'>₹{total:.2f}</td></tr>"
         "</table>"
         "</div>"

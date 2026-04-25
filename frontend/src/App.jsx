@@ -83,6 +83,9 @@ export default function App() {
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategoryId, setNewItemCategoryId] = useState("");
+  const [taxRatePercent, setTaxRatePercent] = useState(5);
+  const [taxRateInput, setTaxRateInput] = useState("5");
+  const [taxRateSaving, setTaxRateSaving] = useState(false);
   const [error, setError] = useState("");
   const lastModalTriggerRef = useRef(null);
   const billCloseBtnRef = useRef(null);
@@ -168,6 +171,8 @@ export default function App() {
       menuSearch,
       menuCategoryFilter,
       menuIncludeInactive,
+      taxRatePercent,
+      taxRateInput,
       summaryData,
       historyData,
       aiDashboardData: aiDashboardCache,
@@ -189,6 +194,8 @@ export default function App() {
     menuSearch,
     menuCategoryFilter,
     menuIncludeInactive,
+    taxRatePercent,
+    taxRateInput,
     summaryData,
     historyData,
     aiDashboardData,
@@ -262,6 +269,12 @@ export default function App() {
       const data = await api.getBootstrap();
       setTables(data.tables);
       setMenu(data.menu);
+      const tr =
+        typeof data.tax_rate_percent === "number" && Number.isFinite(data.tax_rate_percent)
+          ? data.tax_rate_percent
+          : 5;
+      setTaxRatePercent(tr);
+      setTaxRateInput(String(tr));
       setOrderByTable((prev) => {
         const serverActive = data.active_orders || {};
         const normalizedServerActive = Object.fromEntries(
@@ -396,6 +409,14 @@ export default function App() {
       if (Object.prototype.hasOwnProperty.call(cached, "menuIncludeInactive")) {
         setMenuIncludeInactive(Boolean(cached.menuIncludeInactive));
       }
+      if (typeof cached.taxRatePercent === "number" && Number.isFinite(cached.taxRatePercent)) {
+        setTaxRatePercent(cached.taxRatePercent);
+      }
+      if (typeof cached.taxRateInput === "string" && cached.taxRateInput.trim()) {
+        setTaxRateInput(cached.taxRateInput.trim());
+      } else if (typeof cached.taxRatePercent === "number" && Number.isFinite(cached.taxRatePercent)) {
+        setTaxRateInput(String(cached.taxRatePercent));
+      }
       if (cached.summaryData) setSummaryData(cached.summaryData);
       if (cached.historyData) setHistoryData(cached.historyData);
       if (cached.aiDashboardData) setAiDashboardData(cached.aiDashboardData);
@@ -450,7 +471,7 @@ export default function App() {
           [selectedTable]: {
             ...base,
             items: nextItems,
-            totals: calcTotals(nextItems, base.totals?.discount || 0),
+            totals: calcTotals(nextItems, base.totals?.discount || 0, taxRatePercent),
           },
         };
       });
@@ -754,6 +775,31 @@ export default function App() {
     }
   }
 
+  async function saveTaxRate() {
+    const raw = (taxRateInput || "").trim().replace(/,/g, ".");
+    const next = Number(raw);
+    if (!Number.isFinite(next) || next < 0 || next > 100) {
+      setError("Tax rate should be a number from 0 to 100.");
+      return;
+    }
+    setTaxRateSaving(true);
+    try {
+      const res = await api.putTaxSettings(next, (auth.userIdInput || "owner").trim() || "owner");
+      const applied =
+        typeof res?.tax_rate_percent === "number" && Number.isFinite(res.tax_rate_percent)
+          ? res.tax_rate_percent
+          : next;
+      setTaxRatePercent(applied);
+      setTaxRateInput(String(applied));
+      setError("");
+      await bootstrap();
+    } catch (err) {
+      setError(err.message || "Unable to save tax rate.");
+    } finally {
+      setTaxRateSaving(false);
+    }
+  }
+
   async function createCategory() {
     const name = newCategoryName.trim();
     if (!name) {
@@ -953,7 +999,7 @@ export default function App() {
         nextItems[itemIndex] = normalizeItemServiceState({ ...nextItems[itemIndex], ...payload }, base.status);
         return {
           ...prev,
-          [selectedTable]: { ...base, items: nextItems, totals: calcTotals(nextItems, base.totals?.discount || 0) },
+          [selectedTable]: { ...base, items: nextItems, totals: calcTotals(nextItems, base.totals?.discount || 0, taxRatePercent) },
         };
       });
       refreshPending();
@@ -989,7 +1035,7 @@ export default function App() {
         };
         return {
           ...prev,
-          [selectedTable]: { ...base, items: nextItems, totals: calcTotals(nextItems, base.totals?.discount || 0) },
+          [selectedTable]: { ...base, items: nextItems, totals: calcTotals(nextItems, base.totals?.discount || 0, taxRatePercent) },
         };
       });
       refreshPending();
@@ -1036,7 +1082,7 @@ export default function App() {
           ...prev,
           [selectedTable]: {
             ...base,
-            totals: calcTotals(base.items || [], amount),
+            totals: calcTotals(base.items || [], amount, taxRatePercent),
           },
         };
       });
@@ -1290,11 +1336,19 @@ export default function App() {
   const billOrder = billPreview.order;
   const billItems = useMemo(() => (billOrder?.items || []).filter((item) => !item.voided), [billOrder]);
   const billTotals = useMemo(() => {
-    const subtotal = billItems.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 1), 0);
-    const rawDiscount = Number(billOrder?.totals?.discount || 0);
-    const discount = Math.min(Math.max(rawDiscount, 0), subtotal);
-    return { subtotal, discount, total: subtotal - discount };
-  }, [billItems, billOrder]);
+    const stored = billOrder?.totals;
+    if (stored && typeof stored === "object") {
+      const subtotal = Number(stored.subtotal || 0);
+      const rawDiscount = Number(stored.discount || 0);
+      const discount = Math.min(Math.max(rawDiscount, 0), subtotal);
+      const tax = Number(stored.tax || 0);
+      const total = Number(stored.total || 0);
+      if (subtotal > 0 || total > 0 || tax > 0) {
+        return { subtotal, discount, tax, total };
+      }
+    }
+    return calcTotals(billItems, billOrder?.totals?.discount || 0, taxRatePercent);
+  }, [billItems, billOrder, taxRatePercent]);
   const billItemCount = useMemo(
     () => billItems.reduce((sum, item) => sum + Number(item.qty || 1), 0),
     [billItems]
@@ -2123,6 +2177,25 @@ export default function App() {
           ) : (
             <section id="main-panel-menu-management" role="tabpanel" aria-labelledby="main-tab-menu-management" className="card report">
               <h3>Menu Management {menuAdminLoading ? <span className="muted">(Refreshing...)</span> : null}</h3>
+              <div className="menuSubSection">
+                <h4>POS tax</h4>
+                <p className="muted">Applies to new totals calculations and open orders (after save).</p>
+                <div className="row menuAdminRow">
+                  <label>
+                    <span className="muted" style={{ marginRight: 8 }}>Rate (%)</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={taxRateInput}
+                      onChange={(e) => setTaxRateInput(e.target.value)}
+                      style={{ maxWidth: 120 }}
+                    />
+                  </label>
+                  <button type="button" onClick={saveTaxRate} disabled={taxRateSaving}>
+                    {taxRateSaving ? "Saving..." : "Save tax rate"}
+                  </button>
+                </div>
+              </div>
               <div className="menuAdminGrid">
                 <section className="menuAdminSection">
                   <h4>Categories</h4>
@@ -2317,6 +2390,16 @@ export default function App() {
                     <span>Subtotal</span>
                     <strong>{formatCurrency(billTotals.subtotal || 0)}</strong>
                   </div>
+                  {billTotals.discount > 0 ? (
+                    <div className="row">
+                      <span>Discount</span>
+                      <strong>-{formatCurrency(billTotals.discount || 0)}</strong>
+                    </div>
+                  ) : null}
+                  <div className="row">
+                    <span>Tax</span>
+                    <strong>{formatCurrency(billTotals.tax || 0)}</strong>
+                  </div>
                   <div className="row">
                     <span>Total</span>
                     <strong>{formatCurrency(billTotals.total || 0)}</strong>
@@ -2352,14 +2435,17 @@ export default function App() {
   );
 }
 
-function calcTotals(items, discount = 0) {
+function calcTotals(items, discount = 0, taxRatePercent = 5) {
   const subtotal = items.reduce((sum, i) => {
     if (i.voided) return sum;
     return sum + i.price * (i.qty || 1);
   }, 0);
   const boundedDiscount = Math.min(Math.max(discount || 0, 0), subtotal);
-  const tax = (subtotal - boundedDiscount) * 0.05;
-  return { subtotal, discount: boundedDiscount, tax, total: subtotal - boundedDiscount + tax };
+  const rateRaw = Number(taxRatePercent);
+  const rate = Number.isFinite(rateRaw) ? Math.min(Math.max(rateRaw, 0), 100) / 100 : 0.05;
+  const tax = Math.round((subtotal - boundedDiscount) * rate * 100) / 100;
+  const total = Math.round((subtotal - boundedDiscount + tax) * 100) / 100;
+  return { subtotal, discount: boundedDiscount, tax, total };
 }
 
 function pendingQtyForItem(item) {

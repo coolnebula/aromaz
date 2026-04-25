@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.database import get_db
+from app.services.app_settings_service import get_tax_rate_percent
 from app.services.menu_service import ensure_menu_seeded, load_menu_grouped
 from app.services.order_service import ensure_tables_seeded, normalize_order_response
 
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/bootstrap", tags=["bootstrap"])
 async def bootstrap(db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
     await ensure_tables_seeded(db)
     await ensure_menu_seeded(db)
+    tax_rate_percent = await get_tax_rate_percent(db)
     tables = []
     async for table in db.tables.find({}, {"_id": 0}):
         tables.append(table)
@@ -26,5 +28,5 @@ async def bootstrap(db: AsyncIOMotorDatabase = Depends(get_db)) -> dict:
         table_id = order["table_id"]
         if table_id in active_orders:
             continue
-        active_orders[table_id] = normalize_order_response(order)
-    return {"tables": tables, "menu": menu, "active_orders": active_orders}
+        active_orders[table_id] = await normalize_order_response(db, order)
+    return {"tables": tables, "menu": menu, "active_orders": active_orders, "tax_rate_percent": tax_rate_percent}

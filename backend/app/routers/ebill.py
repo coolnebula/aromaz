@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.database import get_db
 from app.schemas import EBillEmailRequest, EBillSmsRequest
 from app.security import sign_ebill_token, verify_ebill_token
-from app.services.order_service import add_audit, get_order_or_none
+from app.services.order_service import add_audit, bill_amounts_for_ebill, get_order_or_none
 from app.services.email_service import EmailDeliveryError, mask_email, send_ebill_email
 from app.services.sms_service import SmsDeliveryError, mask_mobile, send_ebill_sms
 from app.config import settings
@@ -23,21 +23,9 @@ def _active_bill_items(order: dict) -> list[dict]:
     return [item for item in order.get("items", []) if not item.get("voided")]
 
 
-def _compute_totals(order: dict) -> dict:
-    items = _active_bill_items(order)
-    subtotal = sum(float(item.get("price") or 0) * float(item.get("qty") or 1) for item in items)
-    raw_discount = float((order.get("totals") or {}).get("discount", 0) or 0)
-    discount = min(max(raw_discount, 0), subtotal)
-    return {
-        "subtotal": subtotal,
-        "discount": discount,
-        "total": subtotal - discount,
-    }
-
-
 def _render_bill_html(order: dict) -> str:
     items = _active_bill_items(order)
-    totals = _compute_totals(order)
+    totals = bill_amounts_for_ebill(order)
     created = order.get("created_at")
     if isinstance(created, datetime):
         created_utc = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
@@ -85,6 +73,8 @@ def _render_bill_html(order: dict) -> str:
       {item_rows if item_rows else "<div class='muted'>No billable items.</div>"}
       <div class="totals">
         <div class="row"><span>Subtotal</span><strong>₹{totals['subtotal']:.2f}</strong></div>
+        {f"<div class='row'><span>Discount</span><strong>-₹{totals['discount']:.2f}</strong></div>" if totals.get('discount', 0) > 0 else ""}
+        {f"<div class='row'><span>Tax</span><strong>₹{totals['tax']:.2f}</strong></div>" if totals.get('tax', 0) > 0 else ""}
         <div class="row"><span>Total</span><strong>₹{totals['total']:.2f}</strong></div>
       </div>
       <div class="muted" style="text-align:center;margin-top:10px;">Contact: 9051584252</div>

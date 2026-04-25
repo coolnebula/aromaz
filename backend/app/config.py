@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     gemini_input_cost_per_million_usd: float = 0.30
     gemini_output_cost_per_million_usd: float = 2.50
     gemini_bill_thoughts_tokens: bool = True
+    tax_rate_percent: float = 5.0
 
     # Load base env first, then optional local override.
     # This lets VM keep its .env while local dev can override via .env.local.
