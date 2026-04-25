@@ -131,3 +131,12 @@
 - Fix applied: Atlas IP Access List updated to include VM egress IP `129.159.16.45/32`.
 - Post-fix verification: `/api/access/session` returned `200` with JSON payload.
 - Separate local-only issue: current corporate network may redirect `https://pos.aromaz.co.in/` via Cloudflare Gateway (303), while VM-side checks still show app healthy.
+
+## Git push fallback memory (Apr 18, 2026)
+- Context: `git push origin ...` may fail on this laptop with:
+  - `fatal: could not read Password for 'https://coolnebula@github.com': Device not configured`
+- Known-good non-destructive fallback push command:
+  - `git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $(printf 'coolnebula:%s' "$(gh auth token)" | base64)" push https://github.com/coolnebula/aromaz.git HEAD:myspace-current-code`
+- Notes:
+  - Requires `gh auth status` to show `coolnebula` as active account.
+  - Uses current GitHub CLI token and avoids storing new git credentials.
