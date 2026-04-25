@@ -37,7 +37,8 @@ class StatusUpdate(BaseModel):
 
 
 class DiscountPayload(BaseModel):
-    amount: float = Field(gt=0)
+    """amount 0 clears the order discount; positive values set discount in currency (capped at subtotal)."""
+    amount: float = Field(ge=0)
     manager_id: str = "manager-demo"
     reason: str
 

@@ -5,6 +5,8 @@ import { deleteQueuedMutations, enqueueMutation, getQueuedMutations } from "./of
 
 const STATUS_PIPELINE = ["Open", "Served", "Billed", "Paid"];
 const CACHE_KEY = "aromaz-pos-cache-v1";
+/** API requires a manager_id starting with "manager-"; no prompt in UI — this default satisfies the check. */
+const DEFAULT_DISCOUNT_MANAGER_ID = "manager-demo";
 const LLM_MODEL_OPTIONS = [
   {
     value: "gemini-3.1-flash-lite",
@@ -98,6 +100,7 @@ export default function App() {
     status: "",
     order: null,
   });
+  const [billDiscountBusy, setBillDiscountBusy] = useState(false);
   const [auth, setAuth] = useState({
     loading: true,
     authenticated: false,
@@ -1050,20 +1053,31 @@ export default function App() {
     }
   }
 
-  async function applyDiscountFlow() {
-    if (!activeOrder) return;
-    const amountRaw = window.prompt("Discount amount");
-    if (!amountRaw) return;
-    const amount = Number(amountRaw);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Discount amount should be greater than 0.");
-      return;
+  /**
+   * Apply a fixed discount amount (currency) to the active order for this table.
+   * Returns the updated order shape for callers that need to sync the itemized bill modal.
+   */
+  async function applyOrderDiscountAmount(amount, reason, managerId = DEFAULT_DISCOUNT_MANAGER_ID) {
+    if (!activeOrder) {
+      setError("No active order.");
+      return null;
     }
-    const managerId = window.prompt("Manager ID", "manager-demo") || "";
-    const reason = window.prompt("Discount reason") || "";
-    if (!reason.trim()) {
+    const mid = (managerId || DEFAULT_DISCOUNT_MANAGER_ID).trim();
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError("Discount amount must be zero or greater.");
+      return null;
+    }
+    if (!reason?.trim()) {
       setError("Discount reason is required.");
-      return;
+      return null;
+    }
+    if (!mid.startsWith("manager-")) {
+      setError("Manager ID must start with manager-.");
+      return null;
+    }
+    if (["Paid", "Cancelled"].includes(activeOrder.status)) {
+      setError("Cannot apply discount to a paid or cancelled order.");
+      return null;
     }
     if (!syncState.online || activeOrder.id.startsWith("local-")) {
       await enqueueMutation(
@@ -1071,30 +1085,108 @@ export default function App() {
           tableId: selectedTable,
           orderId: activeOrder.id,
           amount,
-          managerId,
+          managerId: mid,
           reason: reason.trim(),
         })
       );
+      let nextOrder = null;
       setOrderByTable((prev) => {
         const base = prev[selectedTable];
         if (!base) return prev;
-        return {
-          ...prev,
-          [selectedTable]: {
-            ...base,
-            totals: calcTotals(base.items || [], amount, taxRatePercent),
-          },
-        };
+        const totals = calcTotals(base.items || [], amount, taxRatePercent);
+        nextOrder = { ...base, discount: amount, totals };
+        return { ...prev, [selectedTable]: nextOrder };
       });
       refreshPending();
-      return;
+      setError("");
+      return nextOrder;
     }
     try {
-      const updated = await api.applyDiscount(activeOrder.id, amount, managerId, reason.trim());
-      setOrderByTable((prev) => ({ ...prev, [selectedTable]: normalizeOrder(updated) }));
+      const updated = await api.applyDiscount(activeOrder.id, amount, mid, reason.trim());
+      const normalized = normalizeOrder(updated);
+      setOrderByTable((prev) => ({ ...prev, [selectedTable]: normalized }));
       setError("");
+      return { ...normalized, table_id: updated.table_id || selectedTable };
     } catch (err) {
       setError(err.message || "Unable to apply discount.");
+      return null;
+    }
+  }
+
+  function billDiscountGuard() {
+    if (!activeOrder || !billPreview.order) {
+      setError("No order on this bill.");
+      return false;
+    }
+    if (billPreview.order.id !== activeOrder.id) {
+      setError("Discount only applies to the current table’s order. Close and open the bill from the table.");
+      return false;
+    }
+    if (["Paid", "Cancelled"].includes(activeOrder.status)) {
+      return false;
+    }
+    return true;
+  }
+
+  async function clearBillDiscount() {
+    if (!billDiscountGuard()) {
+      return;
+    }
+    setBillDiscountBusy(true);
+    try {
+      const updated = await applyOrderDiscountAmount(0, "Itemized bill: clear discount");
+      if (updated) {
+        setBillPreview((prev) => ({
+          ...prev,
+          order: {
+            ...updated,
+            table_id: updated.table_id || prev.order?.table_id || selectedTable,
+          },
+        }));
+      }
+    } finally {
+      setBillDiscountBusy(false);
+    }
+  }
+
+  async function applyBillDiscountPercent(percent) {
+    if (!billDiscountGuard()) {
+      return;
+    }
+    const billable = (billPreview.order?.items || []).filter((i) => !i.voided);
+    const subtotal = billable.reduce(
+      (sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1),
+      0
+    );
+    const amount = Math.round((subtotal * percent) / 100 * 100) / 100;
+    if (amount <= 0) {
+      setError("Subtotal is too small for this discount.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Apply ${percent}% discount (about ${formatCurrency(amount)} on the current subtotal of ${formatCurrency(
+          subtotal
+        )})?`
+      )
+    ) {
+      return;
+    }
+    setBillDiscountBusy(true);
+    try {
+      const reason = `Itemized bill: ${percent}% discount`;
+      const updated = await applyOrderDiscountAmount(amount, reason);
+      if (updated) {
+        setBillPreview((prev) => ({
+          ...prev,
+          order: {
+            ...updated,
+            table_id: updated.table_id || prev.order?.table_id || selectedTable,
+          },
+        }));
+      }
+    } finally {
+      setBillDiscountBusy(false);
     }
   }
 
@@ -1335,19 +1427,29 @@ export default function App() {
   const hasCurrentBillableItems = currentOrderBillItems.length > 0;
   const billOrder = billPreview.order;
   const billItems = useMemo(() => (billOrder?.items || []).filter((item) => !item.voided), [billOrder]);
-  const billTotals = useMemo(() => {
-    const stored = billOrder?.totals;
-    if (stored && typeof stored === "object") {
-      const subtotal = Number(stored.subtotal || 0);
-      const rawDiscount = Number(stored.discount || 0);
-      const discount = Math.min(Math.max(rawDiscount, 0), subtotal);
-      const tax = Number(stored.tax || 0);
-      const total = Number(stored.total || 0);
-      if (subtotal > 0 || total > 0 || tax > 0) {
-        return { subtotal, discount, tax, total };
+  const { billTotals, billImpliedDiscountPercent } = useMemo(() => {
+    const lineSubtotal = billItems.reduce(
+      (sum, i) => sum + (Number(i.price) || 0) * (Number(i.qty) || 1),
+      0
+    );
+    let rawDiscount = 0;
+    if (billOrder) {
+      if (billOrder.discount != null && billOrder.discount !== "") {
+        rawDiscount = Number(billOrder.discount);
+      } else {
+        rawDiscount = Number(billOrder.totals?.discount ?? 0);
       }
     }
-    return calcTotals(billItems, billOrder?.totals?.discount || 0, taxRatePercent);
+    if (!Number.isFinite(rawDiscount) || rawDiscount < 0) {
+      rawDiscount = 0;
+    }
+    const discountIn = Math.min(rawDiscount, lineSubtotal);
+    const totals = calcTotals(billItems, discountIn, taxRatePercent);
+    let impliedPct = null;
+    if (totals.discount > 0.005 && lineSubtotal > 0.005) {
+      impliedPct = Math.round((totals.discount / lineSubtotal) * 1000) / 10;
+    }
+    return { billTotals: totals, billImpliedDiscountPercent: impliedPct };
   }, [billItems, billOrder, taxRatePercent]);
   const billItemCount = useMemo(
     () => billItems.reduce((sum, item) => sum + Number(item.qty || 1), 0),
@@ -1632,9 +1734,6 @@ export default function App() {
                   title={!hasCurrentBillableItems ? "No billable items to print" : "Preview customer bill"}
                 >
                   Itemized Bill
-                </button>
-                <button onClick={applyDiscountFlow} disabled={!activeOrder || ["Paid", "Cancelled"].includes(activeStatus)}>
-                  Apply Discount
                 </button>
                 <button className="danger" onClick={cancelOrder} disabled={!activeOrder || ["Paid", "Cancelled"].includes(activeStatus)}>
                   Cancel Order
@@ -2390,9 +2489,17 @@ export default function App() {
                     <span>Subtotal</span>
                     <strong>{formatCurrency(billTotals.subtotal || 0)}</strong>
                   </div>
-                  {billTotals.discount > 0 ? (
+                  {billTotals.discount > 0.005 ? (
                     <div className="row">
-                      <span>Discount</span>
+                      <span>
+                        Discount
+                        {billImpliedDiscountPercent != null ? (
+                          <span className="muted thermalMeta">
+                            {" "}
+                            ({billImpliedDiscountPercent}% of subtotal)
+                          </span>
+                        ) : null}
+                      </span>
                       <strong>-{formatCurrency(billTotals.discount || 0)}</strong>
                     </div>
                   ) : null}
@@ -2405,6 +2512,39 @@ export default function App() {
                     <strong>{formatCurrency(billTotals.total || 0)}</strong>
                   </div>
                 </div>
+                {activeOrder &&
+                billOrder &&
+                billOrder.id === activeOrder.id &&
+                !["Paid", "Cancelled"].includes(billOrder.status) &&
+                billItems.length > 0 ? (
+                  <div className="billDiscountRow">
+                    <p className="muted billDiscountHint">
+                      Clear discount removes any reduction and recalculates subtotal, tax, and total. Use 10% / 20% / 30%
+                      for a percent of subtotal.
+                    </p>
+                    <div className="billDiscountChips">
+                      <button
+                        type="button"
+                        className="billDiscountClearBtn"
+                        disabled={billDiscountBusy || !(billTotals.discount > 0.005)}
+                        onClick={clearBillDiscount}
+                      >
+                        Clear discount
+                      </button>
+                      {[10, 20, 30].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          title={`Apply ${pct}% discount`}
+                          disabled={billDiscountBusy}
+                          onClick={() => applyBillDiscountPercent(pct)}
+                        >
+                          {pct}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="billFooter muted">Thank you. Please visit again.</div>
 
                 <div className="row ebillRow">
@@ -2479,11 +2619,22 @@ function normalizeItemServiceState(item, status) {
 function normalizeOrder(order) {
   const status = order?.status || "Open";
   const normalizedItems = (order?.items || []).map((item) => normalizeItemServiceState(item, status));
+  const totals = order.totals || { subtotal: 0, discount: 0, tax: 0, total: 0 };
+  let discount = 0;
+  if (order?.discount != null && order.discount !== "") {
+    discount = Number(order.discount) || 0;
+  } else {
+    discount = Number(totals.discount) || 0;
+  }
+  if (!Number.isFinite(discount) || discount < 0) {
+    discount = 0;
+  }
   return {
     id: order.id,
     status,
     items: normalizedItems,
-    totals: order.totals || { subtotal: 0, discount: 0, tax: 0, total: 0 },
+    discount,
+    totals,
   };
 }
 

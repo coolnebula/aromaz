@@ -428,6 +428,37 @@ button:disabled {
   margin-top: 6px;
 }
 
+.billDiscountRow {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #dccfbe;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.billDiscountRow .billDiscountHint {
+  font-size: 0.84rem;
+  margin: 0;
+}
+
+.billDiscountRow .billDiscountChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.billDiscountRow .billDiscountChips button {
+  min-width: 4.5rem;
+  min-height: 40px;
+}
+
+.billDiscountRow .billDiscountClearBtn {
+  min-width: 8.5rem;
+  flex: 0 0 auto;
+}
+
 .billActions {
   margin-top: 10px;
   gap: 10px;
@@ -1463,6 +1494,7 @@ button:disabled {
     display: none !important;
   }
 
+  body.bill-print-mode .billDiscountRow,
   body.bill-print-mode .ebillRow,
   body.bill-print-mode .ebillStatus {
     display: none !important;
